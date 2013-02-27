@@ -1,6 +1,7 @@
 /* hackernews.js -- A Hacker News page-mode for Conkeror
 
  Copyright (C) 2011, 2012 Leonardo Etcheverry <leo@kalio.net>
+ Copyright (C) 2013       Scott Jaderholm
 
  This program is free software; you can redistribute it and/or
  modify it under the terms of the GNU General Public License
