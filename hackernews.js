@@ -72,39 +72,51 @@ register_user_stylesheet(
  * reached, the behavior is controlled by the hackernews_end_behavior
  * variable.
  */
-function hackernews_next_item (I, dom_filter, marker_class) {
+function hackernews_next_item (I, dom_filter, marker_class, next_item_test) {
     var doc = I.buffer.document;
     var items = dom_filter(I);
     var sel_items = items.filter(function (p) { return (p.className.indexOf(marker_class) >= 0); });
     var current   = sel_items.length ? sel_items[0] : null;
     var current_i = current ? items.indexOf(current) : -1;
 
-    var next_i    = current_i + 1;
+    var next_i    = current_i;
     var next_page = null;
+    do {
+        next_i++;
 
-    switch (hackernews_end_behavior) {
-    case "stop":
-        next_i = (next_i < items.length) ? next_i : (items.length - 1);
-        break;
-    case "wrap":
-        next_i = next_i % items.length;
-        break;
-    case "page":
-        if (next_i == items.length) { // at the last item
-            next_page = doc.querySelector("a[rel^=next]");
-            next_i = current_i;       // stay at the last item
+        switch (hackernews_end_behavior) {
+        case "stop":
+            next_i = (next_i < items.length) ? next_i : (items.length - 1);
+            break;
+        case "wrap":
+            next_i = next_i % items.length;
+            break;
+        case "page":
+            if (next_i == items.length) { // at the last item
+                next_page = doc.querySelector("a[rel^=next]");
+                next_i = current_i;       // stay at the last item
+            }
+            break;
         }
-        break;
+
+        // advance to the next page if necessary
+        if (next_page) {
+            browser_object_follow(I.buffer, FOLLOW_DEFAULT, next_page);
+            return next_page;
+        }
+
+        // select the next item by adding marker_class
+        var next = items[next_i];
+
+    } while ((hackernews_end_behavior === "wrap" || next_i < items.length - 1)
+             && current !== next
+             && !next_item_test(current, next));
+
+    if (current === next || !next_item_test(current, next)) {
+        I.minibuffer.message("No matching items");
+        return null;
     }
 
-    // advance to the next page if necessary
-    if (next_page) {
-        browser_object_follow(I.buffer, FOLLOW_DEFAULT, next_page);
-        return next_page;
-    }
-
-    // select the next item by adding marker_class
-    var next = items[next_i]
     if (current)
         dom_remove_class(current, marker_class);
     dom_add_class(next, marker_class);
@@ -115,28 +127,40 @@ function hackernews_next_item (I, dom_filter, marker_class) {
 /* Find the previous item using the `dom_filter' function and select
  * it by adding the class `marker_class' to it.
  */
-function hackernews_prev_item (I, dom_filter, marker_class) {
+function hackernews_prev_item (I, dom_filter, marker_class, prev_item_test) {
     var items = dom_filter(I);
     var sel_items = items.filter(function (p) { return (p.className.indexOf(marker_class) >= 0); });
     var current   = sel_items.length ? sel_items[0] : null;
     var current_i = current ? items.indexOf(sel_items[0]) : items.length;
 
-    var prev_i = current_i - 1;
+    var prev_i = current_i;
+    do {
+        prev_i--;
 
-    switch (hackernews_end_behavior) {
-    case "stop":
-        prev_i = (prev_i >= 0) ? prev_i : 0;
-        break;
-    case "wrap":
-        prev_i = (prev_i % items.length + items.length) % items.length;
-        break;
-    case "page":
-        // same as 'stop' since there's no prev page in HN
-        // TODO: fix this if HN ever publishes such a link
-        prev_i = (prev_i >= 0) ? prev_i : 0;
-        break;
+        switch (hackernews_end_behavior) {
+        case "stop":
+            prev_i = (prev_i >= 0) ? prev_i : 0;
+            break;
+        case "wrap":
+            prev_i = (prev_i % items.length + items.length) % items.length;
+            break;
+        case "page":
+            // same as 'stop' since there's no prev page in HN
+            // TODO: fix this if HN ever publishes such a link
+            prev_i = (prev_i >= 0) ? prev_i : 0;
+            break;
+        }
+        var prev = items[prev_i];
+
+    } while ((hackernews_end_behavior === "wrap" || prev_i !== 0)
+             && current !== prev
+             && !prev_item_test(current, prev));
+
+    if (current === prev || !prev_item_test(current, prev)) {
+        I.minibuffer.message("No matching items");
+        return null;
     }
-    var prev = items[prev_i];
+
     if (current)
         dom_remove_class(current, marker_class);
     dom_add_class(prev, marker_class);
@@ -158,7 +182,7 @@ function hackernews_focus (I, el, selector) {
 
     // scroll into view if necessary
     var boundRect = el.getBoundingClientRect();
-    var win = I.buffer.focused_frame
+    var win = I.buffer.focused_frame;
     if (boundRect.top < 0 || boundRect.bottom > win.innerHeight)
         el.scrollIntoView();
 }
@@ -207,14 +231,14 @@ function _hackernews_comment_filter (I) {
 interactive("hackernews-next-post",
     "Select the next post.",
     function (I) {
-        var next_post = hackernews_next_item(I, _hackernews_post_filter, "current");
+        var next_post = hackernews_next_item(I, _hackernews_post_filter, "current", _hackernews_test_any);
         if (next_post) hackernews_focus_post(I, next_post);
     });
 
 interactive("hackernews-prev-post",
     "Select the previous post.",
     function (I) {
-        var prev_post = hackernews_prev_item(I, _hackernews_post_filter, "current");
+        var prev_post = hackernews_prev_item(I, _hackernews_post_filter, "current", _hackernews_test_any);
         if (prev_post) hackernews_focus_post(I, prev_post);
     });
 
@@ -299,20 +323,89 @@ define_page_mode("hackernews_mode",
 
 page_mode_activate(hackernews_mode);
 
+function _hackernews_comment_level(comment) {
+    return comment.firstChild.firstChild.width;
+}
+
+function _hackernews_comment_top_level(comment) {
+    return _hackernews_comment_level(comment) === 0;
+}
+
+function _hackernews_comment_author(comment) {
+    return comment.childNodes[2].firstChild.firstChild.firstChild.innerHTML;
+}
+
+function _hackernews_test_any(current, next) {
+    return true;
+}
+
+function _hackernews_test_comment_top_level(current, next) {
+    return _hackernews_comment_top_level(next);
+}
+
+function _hackernews_test_comment_same_or_higher_level(current, next) {
+    return _hackernews_comment_level(next) <= _hackernews_comment_level(current);
+}
+
+function _hackernews_test_comment_same_author(current, next) {
+    return _hackernews_comment_author(next) == _hackernews_comment_author(current);
+}
 
 /* helper page-mode for hackernews item view (comments)  */
 
 interactive("hackernews-next-comment",
     "Focus next Hacker News comment.",
     function (I) {
-        var next_comment = hackernews_next_item(I, _hackernews_comment_filter, "current-comment");
+        var next_comment = hackernews_next_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_any);
         if (next_comment) hackernews_focus_comment(I, next_comment);
     });
 
 interactive("hackernews-prev-comment",
     "Focus previous Hacker News comment",
     function (I) {
-        var prev_comment = hackernews_prev_item(I, _hackernews_comment_filter, "current-comment");
+        var prev_comment = hackernews_prev_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_any);
+        if (prev_comment) hackernews_focus_comment(I, prev_comment);
+    });
+
+interactive("hackernews-next-top-level-comment",
+    "Focus next top-level Hacker News comment.",
+    function (I) {
+        var next_comment = hackernews_next_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_comment_top_level);
+        if (next_comment) hackernews_focus_comment(I, next_comment);
+    });
+
+interactive("hackernews-prev-top-level-comment",
+    "Focus previous top-level Hacker News comment",
+    function (I) {
+        var prev_comment = hackernews_prev_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_comment_top_level);
+        if (prev_comment) hackernews_focus_comment(I, prev_comment);
+    });
+
+interactive("hackernews-next-same-or-higher-level-comment",
+    "Focus next same-or-higher-level Hacker News comment.",
+    function (I) {
+        var next_comment = hackernews_next_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_comment_same_or_higher_level);
+        if (next_comment) hackernews_focus_comment(I, next_comment);
+    });
+
+interactive("hackernews-prev-same-or-higher-level-comment",
+    "Focus previous same-or-higher-level Hacker News comment",
+    function (I) {
+        var prev_comment = hackernews_prev_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_comment_same_or_higher_level);
+        if (prev_comment) hackernews_focus_comment(I, prev_comment);
+    });
+
+interactive("hackernews-next-same-author-comment",
+    "Focus next same-author Hacker News comment.",
+    function (I) {
+        var next_comment = hackernews_next_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_comment_same_author);
+        if (next_comment) hackernews_focus_comment(I, next_comment);
+    });
+
+interactive("hackernews-prev-same-author-comment",
+    "Focus previous same-author Hacker News comment",
+    function (I) {
+        var prev_comment = hackernews_prev_item(I, _hackernews_comment_filter, "current-comment", _hackernews_test_comment_same_author);
         if (prev_comment) hackernews_focus_comment(I, prev_comment);
     });
 
@@ -342,6 +435,12 @@ interactive("hackernews-reply",
 define_keymap("hackernews_comments_keymap", $display_name = "HN comments");
 define_key(hackernews_comments_keymap, "j", "hackernews-next-comment");
 define_key(hackernews_comments_keymap, "k", "hackernews-prev-comment");
+define_key(hackernews_comments_keymap, "J", "hackernews-next-top-level-comment");
+define_key(hackernews_comments_keymap, "K", "hackernews-prev-top-level-comment");
+define_key(hackernews_comments_keymap, "C-j", "hackernews-next-same-or-higher-level-comment");
+define_key(hackernews_comments_keymap, "C-k", "hackernews-prev-same-or-higher-level-comment");
+define_key(hackernews_comments_keymap, "C-J", "hackernews-next-same-author-comment");
+define_key(hackernews_comments_keymap, "C-K", "hackernews-prev-same-author-comment");
 define_key(hackernews_comments_keymap, "a", "hackernews-reply");
 define_key(hackernews_comments_keymap, ",", "hackernews-vote-up-comment");
 
