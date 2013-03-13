@@ -50,7 +50,7 @@ define_variable("hackernews_end_behavior", "page",
 register_user_stylesheet(
     "data:text/css," +
         escape (
-          "@-moz-document url-prefix(http://news.ycombinator.com/) {" +
+          "@-moz-document url-prefix(https://news.ycombinator.com/) {" +
             ".current {" +
             "   -moz-animation: 2s flash;" +
             "   background-color: #FCEDCC;" +
