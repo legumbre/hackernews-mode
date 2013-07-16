@@ -1,6 +1,6 @@
 # hackernews-mode
 
-A HN page-mode for Conkeror.
+A [Conkeror](http://www.conkeror.org) page-mode for [HN](https://news.ycombinator.com/).
 
 ## Setup
 Just copy hackernews.js in your [.conkerorrc directory](http://conkeror.org/ConkerorRC)
